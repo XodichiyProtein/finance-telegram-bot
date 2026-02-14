@@ -2,7 +2,7 @@ import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 from datetime import datetime
-from src.domain import Expense
+from src.domain.domain import Expense
 
 
 class ExpenseRepository:

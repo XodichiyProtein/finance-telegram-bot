@@ -2,10 +2,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
 
+
 @dataclass(frozen=True)
 class Category:
-    code: str      # например: "needs:food"
-    title: str     # "Нужды: еда"
+    code: str  # например: "needs:food"
+    title: str  # "Нужды: еда"
+
 
 @dataclass
 class Expense:
@@ -14,6 +16,7 @@ class Expense:
     description: str
     category_code: str
     created_at: datetime
+
 
 MONTHLY_LIMITS: Final[dict[str, float]] = {
     "needs:food": 12000.0,
