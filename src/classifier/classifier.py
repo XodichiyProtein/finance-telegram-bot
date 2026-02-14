@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Final, Optional
 from sentence_transformers import SentenceTransformer
 
+CLASSIFIER_MODEL = "intfloat/multilingual-e5-large"
+
 
 class Category(StrEnum):
     """Перечисление всех доступных категорий транзакций."""
@@ -228,3 +230,32 @@ def predict(model_data: ClassifierModel, text: str) -> Category:
         return Category.UNKNOWN
 
     return model_data.anchor_to_cat[best_idx]
+
+
+class ExpenseClassifier:
+    """
+    Класс-обертка над ML-пайплайном для использования в хендлерах Telegram-бота.
+    Хранит состояние (загруженную модель) и предоставляет простой метод классификации.
+    """
+
+    def __init__(self, model_name: str = CLASSIFIER_MODEL):
+        """
+        Инициализирует модель при создании инстанса класса.
+        Вызывается один раз на старте бота.
+        """
+        self._model_data = init_classifier(model_name, CATEGORY_ANCHORS)
+
+        predict(self._model_data, "warmup init text")
+
+    def classify(self, text: str) -> str:
+        """
+        Классифицирует текст транзакции.
+
+        Args:
+            text (str): Описание расхода, например "купил кофе".
+
+        Returns:
+            str: Строковый код категории (например, "fun:fastfood").
+        """
+        category = predict(self._model_data, text)
+        return str(category.value)
