@@ -12,13 +12,13 @@ from telegram.ext import Application
 from src.core.logger import setup_logger
 from src.domain.domain import Expense
 from src.storage.storage import ExpenseRepository
-from src.classifier.classifier import ExpenseClassifier
+from src.classifier.classifier import init_classifier
 from src.classifier.limit import LimitsService
 from src.config.config import Config
 
 logger = setup_logger(__name__)
 repo = ExpenseRepository(Config.DB_PATH)
-classifier = ExpenseClassifier()
+classifier = init_classifier()
 limits_service = LimitsService(repo)
 
 
