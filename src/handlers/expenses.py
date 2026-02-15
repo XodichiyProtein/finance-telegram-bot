@@ -1,14 +1,21 @@
 """
-Expense Message Handler
-Обрабатывает сообщения вида "описание сумма"
+Обработчик текстовых сообщений с расходами.
+
+Модуль отвечает за приём произвольных текстовых сообщений пользователя вида
+«описание сумма», парсинг введённых данных, классификацию трат по категориям,
+сохранение в хранилище и отображение текущего статуса по лимитам.
+
+Функция register_expenses() регистрирует единый MessageHandler, который
+реагирует на любые текстовые сообщения, не являющиеся командами Telegram.
 """
 
 import re
 from datetime import datetime
+
 from telegram import Update
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram.ext import ContextTypes, MessageHandler, filters, Application
 from telegram.constants import ParseMode
-from telegram.ext import Application
+
 from src.core.logger import setup_logger
 from src.domain.domain import Expense
 from src.storage.storage import ExpenseRepository
@@ -23,7 +30,30 @@ limits_service = LimitsService(repo)
 
 
 async def parse_expense_message(text: str) -> tuple[str, float]:
-    """Парсит 'кофе 200' → ('кофе', 200.0)"""
+    """
+    Распарсить строку расхода вида «описание сумма».
+
+    Ожидается формат вроде: "кофе 200" или "магнит 450". Левая часть строки
+    интерпретируется как произвольное текстовое описание, правая — как сумма
+    в виде числа (поддерживается точка и запятая в качестве разделителя).
+
+    Parameters
+    ----------
+    text : str
+        Исходный текст сообщения пользователя.
+
+    Returns
+    -------
+    tuple[str, float]
+        Кортеж (description, amount), где description — очищенное описание,
+        а amount — положительное числовое значение суммы.
+
+    Raises
+    ------
+    ValueError
+        Если формат сообщения некорректен или сумма не является положительным
+        числом.
+    """
     parts = re.split(r"\s+", text.strip(), maxsplit=1)
     if len(parts) != 2:
         raise ValueError("Формат: `описание сумма`\nПример: `кофе 200`")
@@ -37,7 +67,30 @@ async def parse_expense_message(text: str) -> tuple[str, float]:
 
 
 async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Главная логика обработки расходов."""
+    """
+    Главный обработчик текстовых сообщений с расходами.
+
+    Логика:
+    1. Парсит сообщение в (описание, сумма).
+    2. Классифицирует расход по категории.
+    3. Сохраняет запись в репозитории.
+    4. Считает суммарные траты по категории за текущий месяц и сравнивает
+       их с лимитом.
+    5. Отправляет пользователю ответ с краткой сводкой и статус‑эмодзи.
+
+    Parameters
+    ----------
+    update : Update
+        Объект обновления Telegram, содержащий сообщение пользователя.
+    context : ContextTypes.DEFAULT_TYPE
+        Контекст выполнения обработчика.
+
+    Notes
+    -----
+    В случае ошибки парсинга пользователь получает подсказку по формату.
+    При неожиданных исключениях отправляется краткое сообщение об ошибке,
+    а детали пишутся в лог.
+    """
     if not update.message or not update.message.text:
         return
 
@@ -48,7 +101,6 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         description, amount = await parse_expense_message(text)
         category_code = classifier.classify(description)
 
-        # Сохраняем расход
         expense = Expense(
             user_id=user_id,
             amount=amount,
@@ -58,9 +110,10 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         repo.add(expense)
 
-        # Показываем статус категории
         summary = repo.get_month_summary(
-            user_id, datetime.now().month, datetime.now().year
+            user_id,
+            datetime.now().month,
+            datetime.now().year,
         )
         spent_in_category = summary.get(category_code, 0.0)
 
@@ -80,17 +133,33 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
         logger.info(
-            f"Расход добавлен: user={user_id}, {description} {amount}₽ ({category_code})"
+            "Расход добавлен: user=%s, %s %s₽ (%s)",
+            user_id,
+            description,
+            amount,
+            category_code,
         )
 
     except ValueError as e:
         await update.message.reply_text(str(e), parse_mode=ParseMode.MARKDOWN)
-        logger.warning(f"Ошибка парсинга: {text} от {user_id}")
-    except Exception as e:
+        logger.warning("Ошибка парсинга: %s от %s", text, user_id)
+    except Exception as e:  # noqa: BLE001 — здесь логируем критические ошибки
         await update.message.reply_text("❌ Ошибка обработки. Попробуй ещё раз.")
-        logger.error(f"Критическая ошибка в handle_expense: {e}", exc_info=True)
+        logger.error("Критическая ошибка в handle_expense: %s", e, exc_info=True)
 
 
 def register_expenses(app: Application) -> None:
-    """Регистрирует handler для расходов."""
+    """
+    Зарегистрировать обработчик текстовых расходов в приложении бота.
+
+    Подключает MessageHandler, который реагирует на любые текстовые сообщения
+    (filters.TEXT) за исключением команд (filters.COMMAND), и направляет их
+    в handle_expense().
+
+    Parameters
+    ----------
+    app : Application
+        Экземпляр приложения python-telegram-bot, на котором регистрируется
+        обработчик.
+    """
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expense))
